@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IAVL nodes</title>
+<style>
+  :root {
+    --bg: #14181c;
+    --panel: #1c2228;
+    --ink: #e7ece8;
+    --dim: #9aa59c;
+    --line: #2c353c;
+    --focus: #e39a3c;
+    --inner: #7eb0c4;
+    --leaf: #c9d7c4;
+    --bad: #e07a6a;
+    --ok: #8fbf8a;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); }
+  body { font: 15px/1.45 "Iowan Old Style", Palatino, Georgia, serif; overflow: hidden; }
+  button, select, input { font: 14px/1.3 ui-sans-serif, system-ui, sans-serif; color: var(--ink); }
+  header {
+    display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+    padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  h1 { font-size: 18px; font-weight: 600; margin: 0; letter-spacing: 0; }
+  nav { display: flex; gap: 6px; }
+  nav button, .row button, .steps button {
+    background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 6px 10px; cursor: pointer;
+  }
+  nav button[aria-selected="true"] { border-color: var(--focus); color: var(--focus); }
+  .tissue { display: flex; align-items: center; gap: 8px; margin-left: auto; color: var(--dim); font: 13px/1.2 ui-sans-serif, system-ui, sans-serif; }
+  .tissue input { width: 140px; accent-color: #e4a15a; }
+  #tissue-name { min-width: 7.5em; color: var(--ink); }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; height: calc(100% - 49px); min-height: 0; }
+  #stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .row, .crumbs, .steps, .say { padding: 10px 16px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; border-bottom: 1px solid var(--line); }
+  select, input[type="number"] { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; }
+  canvas { width: 100%; flex: 1 1 auto; min-height: 220px; display: block; background: #101418; cursor: pointer; }
+  #bar { height: 28px; margin: 8px 16px 0; display: flex; border-radius: 4px; overflow: hidden; background: var(--line); }
+  #bar i { display: block; height: 100%; }
+  #bartext { padding: 4px 16px 8px; color: var(--dim); font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; }
+  .crumbs { display: flex; gap: 6px; flex-wrap: wrap; min-height: 36px; }
+  .crumbs button { background: transparent; color: var(--inner); border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
+  aside { border-left: 1px solid var(--line); background: var(--panel); padding: 14px 16px 32px; overflow: auto; min-height: 0; }
+  aside h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin: 16px 0 6px; }
+  aside h2:first-child { margin-top: 0; }
+  dl { margin: 0; display: grid; grid-template-columns: 112px 1fr; gap: 4px 8px; font: 13px/1.35 ui-sans-serif, system-ui, sans-serif; }
+  dt { color: var(--dim); }
+  dd { margin: 0; overflow-wrap: anywhere; }
+  .say p, .note, #status { margin: 0 0 8px; }
+  .say { max-width: 78ch; max-height: 9.5rem; overflow: auto; border-bottom: 1px solid var(--line); }
+  .flag { color: var(--bad); }
+  .good { color: var(--ok); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  #status { padding: 8px 16px; color: var(--dim); font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; }
+  @media (max-width: 860px) {
+    body { overflow: auto; }
+    main { grid-template-columns: 1fr; height: auto; }
+    canvas { height: 70vh; flex: none; }
+    aside { border-left: 0; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>IAVL nodes</h1>
+  <nav>
+    <button id="tab-nodes" type="button" aria-selected="true">Nodes</button>
+    <button id="tab-story" type="button" aria-selected="false">Migration</button>
+  </nav>
+  <label class="tissue">Tissue
+    <input id="tissue" type="range" min="0" max="2" step="0.01" value="1">
+    <span id="tissue-name">Linear</span>
+  </label>
+</header>
+<main>
+  <div id="stage">
+    <div class="row" id="node-controls">
+      <label>Store <select id="store"></select></label>
+      <label>Block <input id="block" type="number" min="0" step="1" value="0"></label>
+      <button id="load" type="button">Load root</button>
+      <span id="hint">Block 0 means the newest saved block in this store.</span>
+    </div>
+    <div class="steps" id="story-controls" hidden>
+      <button id="prev" type="button">Previous step</button>
+      <button id="next" type="button">Next step</button>
+      <span id="step-label"></span>
+    </div>
+    <div class="say" id="say" hidden></div>
+    <div class="crumbs" id="crumbs"></div>
+    <canvas id="view" width="960" height="560"></canvas>
+    <div id="bar" hidden></div>
+    <div id="bartext"></div>
+    <div id="status"></div>
+  </div>
+  <aside id="side">
+    <h2>This view</h2>
+    <p class="note">The circle is this node. Each ring inward is the next real level. A click reads that wedge. The center is depth this picture has not opened.</p>
+    <div id="facts"></div>
+    <h2>Words</h2>
+    <dl>
+      <dt>Store</dt><dd>One named tree in the database.</dd>
+      <dt>Prefix</dt><dd>The bytes <span class="mono">s/k:&lt;store&gt;/</span> in front of that tree.</dd>
+      <dt>Node</dt><dd>One record. An inner node has a left child and a right child. A leaf holds one key and one value.</dd>
+      <dt>Node height</dt><dd>How many levels sit under this node. A leaf has node height 0. This is not the chain block.</dd>
+      <dt>Block</dt><dd>The chain height saved with this version of the tree. IAVL calls it a version.</dd>
+      <dt>Leaves</dt><dd>How many keys sit under this node. The node stores this count. This page does not count the keys.</dd>
+      <dt>Hasher</dt><dd>The function that made the hash in the node. SHA-256 or BLAKE3.</dd>
+      <dt>Mounted</dt><dd>The running program loads this store name. Bytes can remain in the file when the name is not mounted.</dd>
+      <dt>Commit</dt><dd>The list of mounted stores for one block. A name outside that list is not part of the app hash.</dd>
+    </dl>
+  </aside>
+</main>
+<script>
+const API = "";
+const HALT = 23893261;
+const PRE = 23893260;
+const VIEW_DEPTH = 6;
+let tissue = 1;
+let clock = 0;
+let rafID = 0;
+let zoom = null;
+
+const STEPS = [
+  {
+    title: "Step 1. The ibc store, one block before the halt.",
+    store: "ibc",
+    block: PRE,
+    lines: [
+      "A store is one named tree. This store is named ibc.",
+      "Its prefix is s/k:ibc/. Every key in the tree starts with those bytes.",
+      "This store uses the SHA-256 hasher. The running program still mounts it.",
+      "Block 23893260 is the block before the halt. Ask the file for the root at that block.",
+      "The root record may have been saved in an earlier block. Later blocks reuse that node. The side panel shows both numbers."
+    ]
+  },
+  {
+    title: "Step 2. The new bank tree, before it existed.",
+    store: "b3-bank",
+    block: PRE,
+    lines: [
+      "b3-bank is a second tree. It is not the same prefix as bank.",
+      "Its prefix is s/k:b3-bank/. Its hasher is BLAKE3.",
+      "The copy starts at the halt block, 23893261.",
+      "Ask for block 23893260. This tree should have no root at that block."
+    ]
+  },
+  {
+    title: "Step 3. The new bank tree, at the halt.",
+    store: "b3-bank",
+    block: HALT,
+    lines: [
+      "At block 23893261 the program copied the latest keys into b3-bank.",
+      "The copy did not copy old versions. The first saved block of this tree is the halt.",
+      "A leaf here is one current key and one current value.",
+      "An inner node here splits those keys. It does not hold the old SHA-256 nodes.",
+      "The leaf count can match the old bank root. The left count and the right count can still differ."
+    ]
+  },
+  {
+    title: "Step 4. The old bank prefix, after v6.4.",
+    store: "bank",
+    block: 0,
+    lines: [
+      "The running program does not mount the name bank.",
+      "A chain query for /store/bank/key returns: no such store.",
+      "That answer does not say the file deleted the prefix.",
+      "This step reads the newest node key under s/k:bank/. The picture is that read.",
+      "On this file that block is 23893262, the block before v6.4. v6.4 did not write a later version of this prefix."
+    ]
+  }
+];
+
+const canvas = document.getElementById("view");
+const ctx = canvas.getContext("2d");
+let hits = [];
+let stores = [];
+let stack = [];
+let current = null;
+let tab = "nodes";
+let stepIndex = 0;
+let statusTimer = 0;
+
+document.getElementById("tab-nodes").onclick = () => setTab("nodes");
+document.getElementById("tab-story").onclick = () => setTab("story");
+document.getElementById("load").onclick = () => {
+  stack = [];
+  loadRoot(document.getElementById("store").value, Number(document.getElementById("block").value || 0));
+};
+document.getElementById("store").onchange = () => {
+  const s = stores.find((x) => x.name === document.getElementById("store").value);
+  if (s) document.getElementById("block").value = s.latest_block || 0;
+};
+document.getElementById("prev").onclick = () => { stepIndex = Math.max(0, stepIndex - 1); runStep(); };
+document.getElementById("next").onclick = () => { stepIndex = Math.min(STEPS.length - 1, stepIndex + 1); runStep(); };
+canvas.addEventListener("click", onCanvasClick);
+document.getElementById("tissue").addEventListener("input", (ev) => {
+  tissue = Number(ev.target.value);
+  const name = tissue < 0.66 ? "Particulate" : tissue < 1.33 ? "Linear" : "Diagram";
+  document.getElementById("tissue-name").textContent = name;
+});
+window.addEventListener("resize", () => { if (current) paint(current); });
+
+function setTab(next) {
+  tab = next;
+  document.getElementById("tab-nodes").setAttribute("aria-selected", String(next === "nodes"));
+  document.getElementById("tab-story").setAttribute("aria-selected", String(next === "story"));
+  document.getElementById("node-controls").hidden = next !== "nodes";
+  document.getElementById("story-controls").hidden = next !== "story";
+  document.getElementById("say").hidden = next !== "story";
+  if (next === "story") runStep();
+}
+
+function setStatus(text) {
+  document.getElementById("status").textContent = text || "";
+}
+
+async function getJSON(path) {
+  const res = await fetch(API + path);
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    throw new Error(text.slice(0, 280) || res.statusText || "The reader returned no JSON.");
+  }
+}
+
+async function boot() {
+  setStatus("Reading one node key per store. This does not scan the database.");
+  try {
+    const health = await getJSON("/health");
+    stores = await getJSON("/api/stores");
+    fillStores();
+    setStatus("Reader is open. File: " + (health.db || "(unknown)") + ". Read only.");
+    const preferred = stores.find((s) => s.name === "b3-bank" && s.present) || stores.find((s) => s.present);
+    if (preferred) {
+      document.getElementById("store").value = preferred.name;
+      document.getElementById("block").value = preferred.latest_block || 0;
+      loadRoot(preferred.name, preferred.latest_block || 0);
+    } else {
+      drawMessage("No listed store has a node key in this file.");
+    }
+  } catch (err) {
+    setStatus("");
+    drawMessage("The reader is not reachable. " + err.message);
+    document.getElementById("facts").innerHTML = "<p class='flag'>This page is served by iavl-explore. Point -db at application.db. It does not invent nodes.</p>";
+  }
+}
+
+function fillStores() {
+  const sel = document.getElementById("store");
+  sel.innerHTML = "";
+  for (const s of stores) {
+    const opt = document.createElement("option");
+    opt.value = s.name;
+    const mount = s.mounted ? "mounted" : "not mounted";
+    const present = s.present ? ("newest block " + s.latest_block) : "no node key";
+    opt.textContent = s.name + " · " + s.hasher + " · " + mount + " · " + present;
+    sel.appendChild(opt);
+  }
+}
+
+async function loadRoot(store, block) {
+  await loadNode(store, block, "root", true);
+}
+
+async function loadNode(store, block, id, replace) {
+  setStatus("Reading " + store + " block " + (block || "newest") + " node " + id + ".");
+  try {
+    const view = await getJSON("/api/tree?store=" + encodeURIComponent(store) + "&version=" + encodeURIComponent(block || 0) + "&id=" + encodeURIComponent(id) + "&depth=" + VIEW_DEPTH);
+    current = view;
+    if (!replace && view.node) stack.push(current._from);
+    render(view);
+  } catch (err) {
+    drawMessage(err.message);
+  }
+}
+
+function render(view) {
+  const asked = view.block;
+  const levels = view.tree ? countLevels(view.tree) : 0;
+  setStatus("This view read " + (view.reads || 0) + " records, " + levels + " levels deep.");
+  drawBar(view);
+  drawCrumbs(view);
+  drawFacts(view, asked);
+  if (tab === "story") drawSay(view);
+  if (!rafID) rafID = requestAnimationFrame(frame);
+}
+
+function countLevels(node) {
+  let n = 1;
+  if (node.left) n = Math.max(n, 1 + countLevels(node.left));
+  if (node.right) n = Math.max(n, 1 + countLevels(node.right));
+  return n;
+}
+
+function frame(ts) {
+  rafID = requestAnimationFrame(frame);
+  clock = ts / 1000;
+  if (zoom) {
+    zoom.t += 1 / 42;
+    if (zoom.t >= 1) {
+      const z = zoom;
+      zoom = null;
+      if (current && current.node) stack.push({ node: current.node, store: current.store, block: current.block });
+      loadNode(z.store, z.block, z.id, true);
+      return;
+    }
+  }
+  if (current) paint(current);
+}
+
+function drawCrumbs(view) {
+  const box = document.getElementById("crumbs");
+  box.innerHTML = "";
+  const root = document.createElement("button");
+  root.type = "button";
+  root.textContent = (view.store && view.store.name) ? view.store.name + " root" : "root";
+  root.onclick = () => { stack = []; loadRoot(view.store.name, view.block); };
+  box.appendChild(root);
+  stack.forEach((frame, i) => {
+    if (!frame || !frame.node) return;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = " / " + preview(frame.node);
+    b.onclick = () => {
+      const next = stack.slice(0, i);
+      const id = frame.node.id;
+      stack = next;
+      loadNode(view.store.name, view.block, id, true);
+    };
+    box.appendChild(b);
+  });
+  if (view.node) {
+    const here = document.createElement("span");
+    here.textContent = " / " + preview(view.node);
+    box.appendChild(here);
+  }
+}
+
+function drawSay(view) {
+  const step = STEPS[stepIndex];
+  document.getElementById("step-label").textContent = (stepIndex + 1) + " of " + STEPS.length;
+  const box = document.getElementById("say");
+  box.innerHTML = "";
+  const h = document.createElement("p");
+  h.textContent = step.title;
+  box.appendChild(h);
+  for (const line of step.lines) {
+    const p = document.createElement("p");
+    p.textContent = line;
+    box.appendChild(p);
+  }
+  const verdict = document.createElement("p");
+  const check = checkStep(step, view);
+  verdict.className = check.ok ? "good" : "flag";
+  verdict.textContent = check.text;
+  box.appendChild(verdict);
+}
+
+function checkStep(step, view) {
+  if (!view || view.store.name !== step.store || Number(view.block) !== Number(step.block === 0 ? view.block : step.block)) {
+    return { ok: false, text: "This picture is not the step. Use Next step to load it." };
+  }
+  if (step.store === "ibc") {
+    if (view.node && view.store.hasher === "sha256" && view.store.mounted) {
+      return { ok: true, text: "The file matches this step. The ibc root is present. Hasher is SHA-256. The name is mounted." };
+    }
+    return { ok: false, text: "The file does not match this step. " + (view.error || "No root.") };
+  }
+  if (step.store === "b3-bank" && step.block === PRE) {
+    if (view.error && !view.node) {
+      return { ok: true, text: "The file matches this step. No root at block 23893260. Reader said: " + view.error };
+    }
+    return { ok: false, text: "The file does not match this step. A root exists at block 23893260." };
+  }
+  if (step.store === "b3-bank" && step.block === HALT) {
+    if (view.node && view.store.hasher === "blake3") {
+      return { ok: true, text: "The file matches this step. The b3-bank root exists at the halt. Leaves under it: " + view.node.leaves + "." };
+    }
+    return { ok: false, text: "The file does not match this step. " + (view.error || "No root.") };
+  }
+  if (step.store === "bank") {
+    if (view.node && !view.store.mounted && view.store.hasher === "sha256") {
+      const stopped = Number(view.block) === 23893262;
+      const text = "The old prefix is in this file. Newest saved block: " + view.block + ". Leaves under the root: " + view.node.leaves + ". The name is not mounted.";
+      return { ok: stopped, text: stopped ? text : text + " The expected last block is 23893262." };
+    }
+    if (!view.node) {
+      return { ok: false, text: "The old prefix has no node key in this file. " + (view.error || "") };
+    }
+    return { ok: false, text: "The read returned a node, and a field does not match the step. See the side panel." };
+  }
+  return { ok: false, text: view.error || "No check for this step." };
+}
+
+function runStep() {
+  const step = STEPS[stepIndex];
+  stack = [];
+  document.getElementById("step-label").textContent = (stepIndex + 1) + " of " + STEPS.length;
+  loadRoot(step.store, step.block);
+}
+
+function drawFacts(view, asked) {
+  const box = document.getElementById("facts");
+  const rows = [];
+  const s = view.store || {};
+  add(rows, "Store", s.name);
+  add(rows, "Prefix", s.prefix);
+  add(rows, "Hasher", s.hasher);
+  add(rows, "Mounted", s.mounted ? "yes" : "no");
+  add(rows, "Newest block", s.latest_block || "none");
+  add(rows, "Asked block", view.block);
+  add(rows, "Records read", view.reads || 0);
+  if (view.error) add(rows, "Reader", view.error);
+  const n = view.node;
+  if (n) {
+    add(rows, "Kind", n.kind);
+    add(rows, "Node height", n.node_height);
+    add(rows, "Leaves", n.leaves);
+    add(rows, "Saved in block", n.saved_in_block || "legacy id");
+    add(rows, "Node id", n.id);
+    add(rows, "Key", n.key_text || n.key_hex || "(empty)");
+    if (n.kind === "inner node") {
+      add(rows, "Split", "Keys before this key are on the left. This key and later keys are on the right.");
+    }
+    if (n.kind === "leaf") {
+      add(rows, "Value length", n.value_len + " bytes");
+      add(rows, "Value", n.value_text || n.value_hex || "(empty)");
+      if (n.value_len > (n.value_hex || "").length / 2) add(rows, "Value note", "The side panel shows the first 96 bytes.");
+    }
+    add(rows, "Hash", n.hash_hex);
+    add(rows, "Left id", n.left || "(none)");
+    add(rows, "Right id", n.right || "(none)");
+    if (n.saved_in_block && asked && n.saved_in_block !== asked) {
+      add(rows, "Note", "You asked for block " + asked + ". This node was saved in block " + n.saved_in_block + ".");
+    }
+  }
+  if (view.left) add(rows, "Left", summary(view.left));
+  if (view.right) add(rows, "Right", summary(view.right));
+  box.innerHTML = "<dl>" + rows.join("") + "</dl>";
+}
+
+function add(rows, k, v) {
+  rows.push("<dt>" + escapeHTML(k) + "</dt><dd>" + escapeHTML(String(v)) + "</dd>");
+}
+
+function summary(rec) {
+  if (rec.missing) return "missing. " + (rec.error || "");
+  return rec.kind + ", " + rec.leaves + " leaves, key " + preview(rec);
+}
+
+function escapeHTML(s) {
+  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function fitLabel(text, max) {
+  if (ctx.measureText(text).width <= max) return text;
+  let s = text;
+  while (s.length > 1 && ctx.measureText(s + "…").width > max) s = s.slice(0, -1);
+  return s + "…";
+}
+
+function preview(rec) {
+  if (!rec) return "";
+  if (rec.key_text) return rec.key_text.slice(0, 48);
+  if (rec.key_hex) return rec.key_hex.slice(0, 16);
+  return "(empty key)";
+}
+
+function drawBar(view) {
+  const bar = document.getElementById("bar");
+  const text = document.getElementById("bartext");
+  bar.hidden = true;
+  if (!view.node) {
+    text.textContent = "";
+    return;
+  }
+  if (view.node.kind === "leaf") {
+    text.textContent = "This is a leaf. It stores one key and one value. It has no children.";
+    return;
+  }
+  const l = view.left ? view.left.leaves : 0;
+  const r = view.right ? view.right.leaves : 0;
+  const unread = Math.max(0, (view.node.node_height || 0) - (view.tree ? countLevels(view.tree) - 1 : 0));
+  text.textContent = "Left holds " + l.toLocaleString() + " leaves. Right holds " + r.toLocaleString() + " leaves. Unread levels under this picture: " + unread + ".";
+}
+
+function fit() {
+  const r = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.max(320, Math.floor(r.width * dpr));
+  canvas.height = Math.max(280, Math.floor(r.height * dpr));
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { w: r.width, h: r.height };
+}
+
+function paint(view) {
+  const { w, h } = fit();
+  hits = [];
+  const g = ctx.createRadialGradient(w * 0.5, h * 0.45, 20, w * 0.5, h * 0.5, Math.max(w, h) * 0.7);
+  g.addColorStop(0, "#16130f");
+  g.addColorStop(0.55, "#0c1014");
+  g.addColorStop(1, "#07090b");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+  if (!view || (view.error && !view.node)) {
+    const R = Math.min(w, h) * 0.34;
+    membrane(w / 2, h * 0.48, R, 0.4);
+    ctx.fillStyle = "#e7ece8";
+    ctx.font = "16px ui-sans-serif, system-ui, sans-serif";
+    ctx.textAlign = "left";
+    wrapText(view && view.error ? view.error : "No node.", w / 2 - R + 24, h * 0.48, R * 1.6, 22);
+    return;
+  }
+  const tree = view.tree;
+  const R = Math.min(w * 0.46, h * 0.44);
+  const cx = w / 2;
+  const cy = h * 0.47;
+  const breathe = 1 + 0.012 * Math.sin(clock * 0.9);
+  if (!tree) {
+    membrane(cx, cy, R, 0.4);
+    return;
+  }
+  const wedges = drawField(tree, cx, cy, R * breathe, true);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, cy + R * 0.12, w, h);
+  ctx.clip();
+  drawGrid(wedges, cx, cy, R * breathe);
+  ctx.restore();
+  membrane(cx, cy, R * breathe, 0.85);
+}
+
+function membrane(cx, cy, R, alpha) {
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.strokeStyle = "rgba(232, 220, 200, " + alpha + ")";
+  ctx.lineWidth = 1.25;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy, R * 1.035, 0, Math.PI * 2);
+  ctx.strokeStyle = "rgba(232, 220, 200, " + (alpha * 0.28) + ")";
+  ctx.stroke();
+}
+
+function drawField(tree, cx, cy, R, interactive) {
+  const wedges = [];
+  layoutWedges(tree, -Math.PI / 2, Math.PI * 1.5, 0, "focus", wedges);
+  const lineA = Math.max(0, 1 - Math.abs(tissue - 1));
+  const fillA = Math.max(0, (tissue - 0.65) / 1.35);
+  const partA = Math.max(0, 1 - tissue / 2.05);
+  for (const w of wedges) {
+    const r0 = R * Math.pow(0.62, w.level);
+    const r1 = R * Math.pow(0.62, w.level + 1);
+    const a0 = mapAngle(w.a0);
+    const a1 = mapAngle(w.a1);
+    if (a1 - a0 < 0.004) continue;
+    const cool = w.side !== "right";
+    if (interactive && w.level === 0) {
+      /* the outer ring is the node you are inside */
+    }
+    if (fillA > 0.02 && w.level > 0) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r0, a0, a1);
+      ctx.arc(cx, cy, r1, a1, a0, true);
+      ctx.closePath();
+      const tone = cool ? "126, 176, 196" : "227, 154, 60";
+      ctx.fillStyle = "rgba(" + tone + ", " + (0.05 + fillA * (0.22 - w.level * 0.02)) + ")";
+      ctx.fill();
+    }
+    if (lineA > 0.04) {
+      ctx.strokeStyle = cool
+        ? "rgba(180, 214, 224, " + (0.15 + lineA * 0.55) + ")"
+        : "rgba(228, 186, 130, " + (0.15 + lineA * 0.55) + ")";
+      ctx.lineWidth = Math.max(0.4, (1.4 - w.level * 0.12) * lineA);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r0, a0, a1);
+      ctx.stroke();
+      ctx.beginPath();
+      const p0 = pol(cx, cy, r1, a0);
+      const p1 = pol(cx, cy, r0, a0);
+      ctx.moveTo(p0[0], p0[1]);
+      ctx.lineTo(p1[0], p1[1]);
+      ctx.stroke();
+    }
+    if (interactive && w.level > 0 && w.node.id && !w.node.missing && !zoom) {
+      hits.push({ cx, cy, r0, r1, a0, a1, id: w.node.id });
+    }
+    if (fillA > 0.72 && w.level > 0 && w.level < 3 && a1 - a0 > 0.22) {
+      const mid = (a0 + a1) / 2;
+      const rr = (r0 + r1) / 2;
+      const p = pol(cx, cy, rr, mid);
+      ctx.fillStyle = "rgba(244, 239, 228, " + (fillA * 0.9) + ")";
+      ctx.font = "12px ui-sans-serif, system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(fitLabel(preview(w.node), (a1 - a0) * rr * 0.9), p[0], p[1]);
+      ctx.textAlign = "left";
+    }
+  }
+  if (partA > 0.03) {
+    drawParticles(wedges, cx, cy, R, partA, interactive);
+  }
+  return wedges;
+}
+
+function drawGrid(wedges, cx, cy, R) {
+  const strength = Math.max(0, (tissue - 0.35) / 1.65);
+  if (strength < 0.02) return;
+  ctx.strokeStyle = "rgba(232, 220, 200, " + (0.4 * strength) + ")";
+  ctx.lineWidth = 0.7;
+  for (let i = 1; i <= 5; i++) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, R * (i / 5.2), Math.PI * 0.05, Math.PI * 0.95);
+    ctx.stroke();
+  }
+  for (const w of wedges) {
+    if (w.level > 4 || w.level === 0) continue;
+    const a = mapAngle(w.a0);
+    if (Math.sin(a) < 0.05) continue;
+    const p0 = pol(cx, cy, R * 0.22, a);
+    const p1 = pol(cx, cy, R, a);
+    ctx.beginPath();
+    ctx.moveTo(p0[0], p0[1]);
+    ctx.lineTo(p1[0], p1[1]);
+    ctx.stroke();
+  }
+}
+
+function drawParticles(wedges, cx, cy, R, alpha, interactive) {
+  for (const w of wedges) {
+    const span = w.a1 - w.a0;
+    const n = Math.min(28, Math.max(3, Math.round(Math.log10((w.node.leaves || 1) + 10) * (4 + w.level))));
+    for (let i = 0; i < n; i++) {
+      const drift = clock * (0.12 + (i % 5) * 0.03) * (i % 2 ? 1 : -1);
+      const along = ((i + 0.5) / n + drift) % 1;
+      const a = mapAngle(w.a0 + span * (along < 0 ? along + 1 : along));
+      const band = 0.62 + 0.38 * ((i % 7) / 7);
+      const breathe = 1 + 0.02 * Math.sin(clock * 1.3 + i);
+      const r = R * Math.pow(0.62, w.level + band * 0.85) * breathe;
+      const p = pol(cx, cy, r, a);
+      const cool = w.side !== "right";
+      ctx.fillStyle = cool
+        ? "rgba(210, 230, 234, " + alpha * 0.85 + ")"
+        : "rgba(244, 214, 170, " + alpha * 0.85 + ")";
+      ctx.beginPath();
+      ctx.arc(p[0], p[1], interactive ? 1.15 : 0.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+function layoutWedges(node, a0, a1, level, side, out) {
+  if (!node) return;
+  out.push({ node, a0, a1, level, side });
+  const left = node.left;
+  const right = node.right;
+  if (!left && !right) return;
+  const ln = Math.max(0, left ? left.leaves : 0);
+  const rn = Math.max(0, right ? right.leaves : 0);
+  const sum = ln + rn || 1;
+  const mid = a0 + (a1 - a0) * (ln / sum);
+  if (left) layoutWedges(left, a0, mid, level + 1, "left", out);
+  if (right) layoutWedges(right, mid, a1, level + 1, "right", out);
+}
+
+function mapAngle(a) {
+  if (!zoom) return a;
+  const z = zoom.t * zoom.t * (3 - 2 * zoom.t);
+  const span = zoom.a1 - zoom.a0 || 0.0001;
+  const u = (a - zoom.a0) / span;
+  const dest0 = -Math.PI / 2;
+  const dest1 = dest0 + Math.PI * 2;
+  const b0 = zoom.a0 + (dest0 - zoom.a0) * z;
+  const b1 = zoom.a1 + (dest1 - zoom.a1) * z;
+  return b0 + (b1 - b0) * u;
+}
+
+function pol(cx, cy, r, a) {
+  return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+}
+
+function wrapText(text, x, y, max, lh) {
+  const words = String(text).split(/\s+/);
+  let line = "";
+  for (const word of words) {
+    const trial = line ? line + " " + word : word;
+    if (ctx.measureText(trial).width > max) {
+      ctx.fillText(line, x, y);
+      y += lh;
+      line = word;
+    } else {
+      line = trial;
+    }
+  }
+  if (line) ctx.fillText(line, x, y);
+}
+
+function onCanvasClick(ev) {
+  if (!current || !current.store || zoom) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = ev.clientX - rect.left;
+  const y = ev.clientY - rect.top;
+  for (let i = hits.length - 1; i >= 0; i--) {
+    const hit = hits[i];
+    const dx = x - hit.cx;
+    const dy = y - hit.cy;
+    const r = Math.hypot(dx, dy);
+    if (r < hit.r1 || r > hit.r0) continue;
+    let a = Math.atan2(dy, dx);
+    const start = hit.a0;
+    let end = hit.a1;
+    while (a < start) a += Math.PI * 2;
+    while (end < start) end += Math.PI * 2;
+    if (a <= end) {
+      zoom = { a0: hit.a0, a1: hit.a1, t: 0, id: hit.id, store: current.store.name, block: current.block };
+      return;
+    }
+  }
+}
+
+boot();
+</script>
+</body>
+</html>
