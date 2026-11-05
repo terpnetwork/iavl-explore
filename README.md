@@ -10,12 +10,12 @@ The open does not take the LevelDB lock, and it refuses writes, so a node can ke
 go run . -db /path/to/application.db
 ```
 
-Open http://127.0.0.1:8791/
+Open http://127.0.0.1:8780/
 
 | Flag | Meaning |
 |---|---|
 | `-db` | Path to the `application.db` directory. Required. |
-| `-addr` | Listen address. Default `127.0.0.1:8791`. |
+| `-addr` | Listen address. Default `127.0.0.1:8780`. Terp KMS already uses `127.0.0.1:8791`. |
 | `-web` | Directory that contains `index.html`. Empty serves the page built into the binary. |
 
 Pass the `application.db` directory, not a copy of its tables and not a tarball. Any machine works. The path is only the flag.

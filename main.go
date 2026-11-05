@@ -18,11 +18,11 @@ var indexHTML []byte
 
 func main() {
 	dbPath := flag.String("db", "", "path to application.db (read-only, no LOCK)")
-	addr := flag.String("addr", "127.0.0.1:8791", "listen address")
+	addr := flag.String("addr", "127.0.0.1:8780", "listen address")
 	webDir := flag.String("web", "", "directory containing index.html; empty serves the embedded page")
 	flag.Parse()
 	if *dbPath == "" {
-		fmt.Fprintln(os.Stderr, "usage: iavl-explore -db /path/to/application.db [-addr 127.0.0.1:8791] [-web dir]")
+		fmt.Fprintln(os.Stderr, "usage: iavl-explore -db /path/to/application.db [-addr 127.0.0.1:8780] [-web dir]")
 		os.Exit(2)
 	}
 
